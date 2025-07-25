@@ -1,3 +1,146 @@
+/* src/index.css */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Custom CSS for Sidebar Transitions (Gemini-like) */
+
+:root {
+  --sidebar-expanded-width: 256px; /* w-64 */
+  --sidebar-collapsed-width: 64px; /* w-16 */
+  --topbar-height: 64px; /* h-16 */
+}
+
+/* FIX: Ensure HTML, Body, and #root take full height to allow min-h-screen to work */
+html, body, #root {
+  height: 100% !important; /* Force height to 100% */
+  min-height: 100vh !important; /* Force minimum height to full viewport height */
+  margin: 0 !important; /* Remove default margins */
+  padding: 0 !important; /* Remove default padding */
+  overflow-x: hidden !important; /* Prevent horizontal scrolling of the entire page */
+}
+
+/* Base sidebar styling */
+.app-sidebar {
+  /* Width controlled by JS classes */
+  transition: width 0.3s ease-in-out, transform 0.3s ease-in-out;
+  position: fixed; /* Always fixed relative to viewport */
+  top: 0;
+  left: 0;
+  height: 100vh; /* Full viewport height */
+  z-index: 20; /* Keep above main content */
+  background-color: #1f2937; /* gray-800 */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  overflow: hidden; /* Hide overflowing text/content when collapsed */
+}
+
+/* Desktop Sidebar States */
+/* Default desktop state is collapsed (icon-only) */
+.app-sidebar.sidebar-collapsed {
+  width: var(--sidebar-collapsed-width);
+}
+
+/* Desktop expanded state (when isSidebarOpen is true OR isHovering is true) */
+.app-sidebar.sidebar-expanded {
+  width: var(--sidebar-expanded-width);
+}
+
+/* Responsive adjustments for mobile */
+@media (max-width: 767px) { /* Tailwind's md breakpoint is 768px */
+  /* Mobile sidebar width is always expanded width when open */
+  .app-sidebar {
+    width: var(--sidebar-expanded-width); /* Fixed width for mobile when open */
+    transform: translateX(-100%); /* Hidden by default on mobile */
+  }
+
+  /* Mobile sidebar explicitly slides into view when isSidebarOpen is true */
+  .app-sidebar.sidebar-expanded { /* Using sidebar-expanded class for mobile open */
+    transform: translateX(0); /* Slides into view */
+  }
+}
+
+/* For sidebar content: text visibility and position within the link */
+.app-sidebar .sidebar-header-text,
+.app-sidebar .sidebar-welcome-text, /* This class is now unused in App.tsx, but kept in CSS for completeness */
+.app-sidebar .nav-text,
+.app-sidebar .logout-text {
+  opacity: 1; /* Default to visible */
+  width: auto; /* Default to auto width */
+  white-space: nowrap;
+  transition: opacity 0.15s ease-in-out, width 0.15s ease-in-out;
+}
+
+/* Hide text when sidebar is collapsed (desktop) */
+.app-sidebar.sidebar-collapsed .sidebar-header-text,
+.app-sidebar.sidebar-collapsed .sidebar-welcome-text,
+.app-sidebar.sidebar-collapsed .nav-text,
+.app-sidebar.sidebar-collapsed .logout-text {
+  opacity: 0;
+  width: 0; /* Collapse width to hide text */
+  pointer-events: none; /* Prevent text from being selectable/clickable when hidden */
+}
+
+/* Nav item link styling - ensures full area is clickable and icon/text spacing is consistent */
+.app-sidebar nav ul li a {
+  padding: 0.75rem 1rem; /* py-3 px-4, consistent padding for hover area */
+  display: flex;
+  align-items: center;
+  overflow: hidden; /* Hide overflowing text */
+  position: relative; /* For tooltip positioning */
+}
+
+/* Nav icon margin for spacing between icon and text */
+.app-sidebar nav ul li a svg {
+    margin-right: 0.75rem; /* ml-3 from App.tsx link */
+    transition: margin-right 0.3s ease-in-out;
+}
+
+/* Remove nav icon margin when text is hidden (desktop collapsed) */
+.app-sidebar.sidebar-collapsed nav ul li a svg {
+    margin-right: 0; /* Remove margin to pull icon to left edge */
+}
+
+/* Tooltip for collapsed state */
+.app-sidebar nav ul li a .tooltip {
+  position: absolute;
+  left: var(--sidebar-collapsed-width); /* Position right at the edge of the collapsed sidebar */
+  top: 50%;
+  transform: translateY(-50%);
+  background-color: rgba(55, 65, 81, 0.9); /* gray-700 with opacity */
+  color: white;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem; /* text-xs */
+  opacity: 0;
+  visibility: hidden;
+  white-space: nowrap;
+  pointer-events: none; /* Do not block clicks */
+  transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out;
+  z-index: 50; /* Ensure tooltip is on top */
+}
+
+/* Show tooltip on hover when sidebar is collapsed */
+.app-sidebar.sidebar-collapsed nav ul li a:hover .tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Styling for the toggle button within the sidebar header */
+.sidebar-header-toggle-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  /* Make the button transparent when not expanded */
+  opacity: 0;
+  pointer-events: none; /* Disable clicks when hidden */
+  transition: opacity 0.2s ease-in-out;
+}
+/* Show the toggle button ONLY when the sidebar is expanded (desktop) */
+.app-sidebar.sidebar-expanded .sidebar-header-toggle-button {
+    opacity: 1;
+    pointer-events: auto;
+}

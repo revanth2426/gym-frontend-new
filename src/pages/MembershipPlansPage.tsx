@@ -1,7 +1,7 @@
 // src/pages/MembershipPlansPage.tsx - COMPLETE FILE
 import React, { useEffect, useState } from 'react';
 import axiosInstance from '../api/axiosConfig';
-import { format } from 'date-fns'; // Still needed for joiningDate, etc.
+// format from date-fns is no longer directly used in this page after plan assignments removal
 
 // Define interfaces for data (matches backend DTOs/Entities)
 interface MembershipPlan {
@@ -12,15 +12,12 @@ interface MembershipPlan {
   featuresList: string;
 }
 
-// REMOVED: User interface (no longer needed for assign form)
-// REMOVED: PlanAssignmentDisplay interface (no longer needed for assignments table)
-
 const MembershipPlansPage: React.FC = () => {
   const [plans, setPlans] = useState<MembershipPlan[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // State for Plan CRUD Form (no changes here)
+  // State for Plan CRUD Form
   const [showPlanForm, setShowPlanForm] = useState<boolean>(false);
   const [editingPlan, setEditingPlan] = useState<MembershipPlan | null>(null);
   const [planFormData, setPlanFormData] = useState({
@@ -30,13 +27,8 @@ const MembershipPlansPage: React.FC = () => {
     featuresList: '',
   });
 
-  // REMOVED: State for Plan Assignment Form (showAssignForm, assignFormData)
-  // REMOVED: planAssignments state
-
   useEffect(() => {
     fetchPlans();
-    // REMOVED: fetchUsersForAssignment()
-    // REMOVED: fetchAllPlanAssignments()
   }, []);
 
   const fetchPlans = async () => {
@@ -53,11 +45,6 @@ const MembershipPlansPage: React.FC = () => {
     }
   };
 
-  // REMOVED: fetchUsersForAssignment function
-  // REMOVED: fetchAllPlanAssignments function
-
-
-  // --- Plan CRUD Handlers --- (only these remain, assignment handlers removed)
   const handlePlanInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setPlanFormData({ ...planFormData, [name]: value });
@@ -84,7 +71,6 @@ const MembershipPlansPage: React.FC = () => {
       setEditingPlan(null);
       setPlanFormData({ planName: '', price: '', durationMonths: '', featuresList: '' });
       fetchPlans(); // Refresh plans list
-      // REMOVED: fetchAllPlanAssignments(); // No longer refreshing assignments
     } catch (err: any) {
       console.error('Failed to save plan:', err);
       setError('Failed to save plan. Please check your input.');
@@ -105,48 +91,41 @@ const MembershipPlansPage: React.FC = () => {
   };
 
   const handleDeletePlanClick = async (planId: number) => {
-    if (window.confirm('Are you sure you want to delete this plan?')) { // Removed text about assignments
+    if (window.confirm('Are you sure you want to delete this plan?')) {
       try {
         setLoading(true);
         await axiosInstance.delete(`/plans/${planId}`);
         fetchPlans(); // Refresh plans list
-        // REMOVED: fetchAllPlanAssignments(); // No longer refreshing assignments
       } catch (err: any) {
         console.error('Failed to delete plan:', err);
-        setError('Failed to delete plan.');
+        setError('Failed to delete plan. Ensure no members are currently assigned to it.'); // More specific error
       } finally {
         setLoading(false);
       }
     }
   };
 
-  // REMOVED: Plan Assignment Handlers (handleAssignInputChange, handleAssignFormSubmit)
-
   return (
     <div className="p-6 bg-white rounded-lg shadow-md">
       <h1 className="text-3xl font-bold text-gray-800 mb-6">Membership Plans Management</h1>
 
-      {/* Only Add/Edit Plans button remains */}
       <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4 mb-6">
         <button
           onClick={() => {
             setShowPlanForm(!showPlanForm);
             setEditingPlan(null);
             setPlanFormData({ planName: '', price: '', durationMonths: '', featuresList: '' });
-            // REMOVED: setShowAssignForm(false);
           }}
           className="w-full sm:w-auto bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200 ease-in-out"
         >
           {showPlanForm ? 'Hide Plan Form' : 'Add/Edit Plans'}
         </button>
-        {/* REMOVED: Assign Plan to Member button */}
       </div>
 
       {error && (
         <p className="text-red-600 text-center mb-4">{error}</p>
       )}
 
-      {/* Plan CRUD Form */}
       {showPlanForm && (
         <div className="bg-gray-50 p-6 rounded-lg shadow-inner mb-8">
           <h2 className="text-2xl font-semibold text-gray-800 mb-4">{editingPlan ? 'Edit Membership Plan' : 'Add New Membership Plan'}</h2>
@@ -189,9 +168,6 @@ const MembershipPlansPage: React.FC = () => {
         </div>
       )}
 
-      {/* REMOVED: Plan Assignment Form */}
-
-      {/* Membership Plans Table */}
       <h2 className="text-2xl font-semibold text-gray-800 mb-4 mt-8">All Membership Plans</h2>
       {loading && !plans.length ? (
         <p className="text-center text-gray-600">Loading plans...</p>
@@ -213,16 +189,25 @@ const MembershipPlansPage: React.FC = () => {
               </thead>
               <tbody>
                 {plans.map((plan) => (
-                  <tr key={plan.planId} className="border-b hover:bg-gray-50"><td className="py-3 px-4 text-gray-700 text-sm">{plan.planId}</td><td className="py-3 px-4 text-gray-700">{plan.planName}</td><td className="py-3 px-4 text-gray-700">₹{plan.price.toFixed(2)}</td><td className="py-3 px-4 text-gray-700">{plan.durationMonths}</td><td className="py-3 px-4 text-gray-700 text-sm">{plan.featuresList}</td><td className="py-3 px-4"><button onClick={() => handleEditPlanClick(plan)}className="bg-blue-500 hover:bg-blue-600 text-white text-sm py-1 px-3 rounded-md mr-2">Edit</button><button onClick={() => handleDeletePlanClick(plan.planId)}className="bg-red-500 hover:bg-red-600 text-white text-sm py-1 px-3 rounded-md">Delete</button></td></tr>
+                  <tr key={plan.planId} className="border-b hover:bg-gray-50">
+                    <td className="py-3 px-4 text-gray-700 text-sm">{plan.planId}</td>
+                    <td className="py-3 px-4 text-gray-700">{plan.planName}</td>
+                    <td className="py-3 px-4 text-gray-700">₹{plan.price.toFixed(2)}</td>
+                    <td className="py-3 px-4 text-gray-700">{plan.durationMonths}</td>
+                    <td className="py-3 px-4 text-gray-700 text-sm">{plan.featuresList}</td>
+                    <td className="py-3 px-4">
+                      <button onClick={() => handleEditPlanClick(plan)}
+                              className="bg-blue-500 hover:bg-blue-600 text-white text-sm py-1 px-3 rounded-md mr-2">Edit</button>
+                      <button onClick={() => handleDeletePlanClick(plan.planId)}
+                              className="bg-red-500 hover:bg-red-600 text-white text-sm py-1 px-3 rounded-md">Delete</button>
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
           )}
         </div>
       )}
-
-      {/* REMOVED: All Plan Assignments Table */}
-      {/* REMOVED: h2 for All Plan Assignments */}
     </div>
   );
 };

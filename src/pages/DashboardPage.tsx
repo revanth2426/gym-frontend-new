@@ -2,40 +2,34 @@
 import React, { useEffect, useState } from 'react';
 import axiosInstance from '../api/axiosConfig';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { format } from 'date-fns'; // Make sure date-fns is imported
+import { format } from 'date-fns';
 
-// Define interfaces for data structures (matches backend DTOs/Entities)
+// Define interfaces for data structures
 interface DashboardSummary {
   totalActiveMembers: number;
   totalTrainers: number;
 }
 
-interface PlanDistribution {
-  [planName: string]: number; // e.g., { "Monthly Basic": 10, "Annual Premium": 5 }
-}
-
 // For daily attendance data, mapping date string to count
 interface DailyAttendance {
-  [date: string]: number; // e.g., { "2025-07-20": 5, "2025-07-21": 8 }
+  [date: string]: number;
 }
 
 // UPDATED: Interface for ExpiringMembership from Backend (ExpiringMembershipDTO)
-interface ExpiringMembershipDisplay { // Renamed from ExpiringMembership to avoid confusion
-  assignmentId: number;
-  userName: string; // Now a direct string from DTO
-  planName: string; // Now a direct string from DTO
-  endDate: string; // Will be a string in ISO format (YYYY-MM-DD)
-  userId?: string; // Optional
-  planId?: number;  // Optional
+interface ExpiringMembershipDisplay {
+  userId?: string;
+  userName: string;
+  planId?: number;
+  planName: string;
+  endDate: string;
 }
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF0054']; // For pie chart colors
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF0054'];
 
 const DashboardPage: React.FC = () => {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [planDistributionData, setPlanDistributionData] = useState<any[]>([]); // Formatted for Recharts PieChart
-  const [attendanceChartData, setAttendanceChartData] = useState<any[]>([]); // Formatted for Recharts LineChart
-  // UPDATED: Use the new interface for expiringMemberships state
+  const [planDistributionData, setPlanDistributionData] = useState<any[]>([]);
+  const [attendanceChartData, setAttendanceChartData] = useState<any[]>([]);
   const [expiringMemberships, setExpiringMemberships] = useState<ExpiringMembershipDisplay[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,18 +43,17 @@ const DashboardPage: React.FC = () => {
         const summaryRes = await axiosInstance.get<DashboardSummary>('/dashboard/summary');
         setSummary(summaryRes.data);
 
-        // Fetch Plan Distribution
-        const planDistRes = await axiosInstance.get<PlanDistribution>('/dashboard/plan-distribution');
-        // Transform object to array of { name: 'Plan Name', value: count } for PieChart
+        // Fetch Plan Distribution (now based on Users' current plans)
+        const planDistRes = await axiosInstance.get<{ [key: string]: number }>('/dashboard/plan-distribution');
         const formattedPlanData = Object.entries(planDistRes.data).map(([name, value]) => ({ name, value }));
         setPlanDistributionData(formattedPlanData);
 
-        // Fetch Daily Attendance for last 7 days (adjust range as needed)
+        // Fetch Daily Attendance for last 7 days
         const endDate = new Date();
         const startDate = new Date();
-        startDate.setDate(endDate.getDate() - 6); // Last 7 days including today
+        startDate.setDate(endDate.getDate() - 6);
 
-        const formatDateForApi = (date: Date) => format(date, 'yyyy-MM-dd'); // Use date-fns for consistency
+        const formatDateForApi = (date: Date) => format(date, 'yyyy-MM-dd');
         const attendanceRes = await axiosInstance.get<DailyAttendance>(`/dashboard/daily-attendance-chart`, {
           params: {
             startDate: formatDateForApi(startDate),
@@ -68,22 +61,20 @@ const DashboardPage: React.FC = () => {
           },
         });
 
-        // Transform attendance data for LineChart
-        // Ensure all dates in range are present, even with 0 attendance
         const dailyDataMap: { [key: string]: number } = {};
         for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-          dailyDataMap[formatDateForApi(d)] = 0; // Initialize with 0
+          dailyDataMap[formatDateForApi(d)] = 0;
         }
         Object.entries(attendanceRes.data).forEach(([date, count]) => {
           dailyDataMap[date] = count;
         });
         const formattedAttendanceData = Object.entries(dailyDataMap)
-          .sort(([dateA], [dateB]) => dateA.localeCompare(dateB)) // Sort by date
+          .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
           .map(([date, count]) => ({ date, count }));
         setAttendanceChartData(formattedAttendanceData);
 
 
-        // Fetch Expiring Memberships (next 7 days) - now expects ExpiringMembershipDisplay
+        // Fetch Expiring Memberships (now based on Users' current plans)
         const expiringRes = await axiosInstance.get<ExpiringMembershipDisplay[]>('/dashboard/expiring-memberships', {
           params: { days: 7 },
         });
@@ -98,7 +89,7 @@ const DashboardPage: React.FC = () => {
     };
 
     fetchDashboardData();
-  }, []); // Empty dependency array means this runs once on mount
+  }, []);
 
   if (loading) {
     return <div className="p-6 text-center text-gray-600">Loading dashboard data...</div>;
@@ -189,9 +180,9 @@ const DashboardPage: React.FC = () => {
               </thead>
               <tbody>
                 {expiringMemberships.map((membership) => (
-                  <tr key={membership.assignmentId} className="hover:bg-gray-50">
-                    <td className="py-2 px-4 border-b text-gray-700">{membership.userName}</td> {/* UPDATED */}
-                    <td className="py-2 px-4 border-b text-gray-700">{membership.planName}</td> {/* UPDATED */}
+                  <tr key={membership.userId || membership.planId} className="hover:bg-gray-50"> {/* Use a combination for key if assignmentId is gone */}
+                    <td className="py-2 px-4 border-b text-gray-700">{membership.userName}</td>
+                    <td className="py-2 px-4 border-b text-gray-700">{membership.planName}</td>
                     <td className="py-2 px-4 border-b text-gray-700">{membership.endDate}</td>
                   </tr>
                 ))}
