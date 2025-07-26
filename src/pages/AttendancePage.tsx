@@ -3,6 +3,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import axiosInstance from '../api/axiosConfig';
 import { format } from 'date-fns';
 import { toast } from 'react-toastify';
+import QrCodeScanner from '../components/QrCodeScanner';
 
 interface User {
   userId: number;
@@ -26,6 +27,12 @@ interface AttendanceResponseDTO {
     checkInTime: string;
     checkOutTime?: string;
     timeSpentMinutes?: number;
+}
+
+interface ErrorResponseDTO { // NEW INTERFACE for consistent backend errors
+  message: string;
+  status: number;
+  timestamp: number;
 }
 
 interface PaginatedResponse<T> {
@@ -75,6 +82,11 @@ const AttendancePage: React.FC = () => {
   const [loadingStatus, setLoadingStatus] = useState<boolean>(false);
   const [loadingSummary, setLoadingSummary] = useState<boolean>(false);
   const [loadingCheckoutAll, setLoadingCheckoutAll] = useState<boolean>(false);
+
+  // States for QR Scanner integration
+  const [showQrScanner, setShowQrScanner] = useState(false);
+  const [qrScanError, setQrScanError] = useState<string | null>(null);
+
 
   const fetchUsersMap = useCallback(async () => {
     try {
@@ -199,59 +211,72 @@ const AttendancePage: React.FC = () => {
     setCheckInError(null);
   };
 
-  const handleCheckInOrOut = async (targetUserId?: number, targetUserName?: string) => {
-    const userIdToProcess = targetUserId || selectedUser?.userId;
-    const userNameToProcess = targetUserName || selectedUser?.name;
-
-    if (!userIdToProcess) {
-      toast.error("Please select a member to check in/out.");
-      return;
-    }
-
+  const handleCheckInOrOut = useCallback(async (targetUserId: number, targetUserName?: string) => {
     setCheckInMessage(null);
     setCheckInError(null);
     setLoadingCheckIn(true);
 
-    try {
-      const response = await axiosInstance.post<AttendanceResponseDTO>('/attendance/record', { userId: userIdToProcess.toString() });
+    let userNameForToast = targetUserName;
 
-      if (selectedUser && selectedUser.userId === userIdToProcess) {
+    try {
+      if (!userNameForToast) {
+        const userDetailsResponse = await axiosInstance.get<User[]>(`/dashboard/users/search`, { params: { query: targetUserId.toString() } });
+        if (userDetailsResponse.data.length > 0) {
+          userNameForToast = userDetailsResponse.data[0].name;
+        } else {
+          userNameForToast = `User ID: ${targetUserId}`;
+        }
+      }
+
+      const response = await axiosInstance.post<AttendanceResponseDTO>('/attendance/record', { userId: targetUserId });
+
+      if (selectedUser && selectedUser.userId === targetUserId) {
         setTodayAttendanceStatus(response.data);
       }
       
       if (response.data.checkOutTime) {
-        toast.success(`${response.data.userName} has checked out!`);
+        toast.success(`${userNameForToast || 'Unknown User'} has checked out!`);
       } else {
-        toast.success(`${response.data.userName} has checked in!`);
+        toast.success(`${userNameForToast || 'Unknown User'} has checked in!`);
       }
 
-      if (!targetUserId) {
+      if (selectedUser && selectedUser.userId === targetUserId) {
         setSearchQuery('');
         setSelectedUser(null);
       }
       setCurrentPage(0);
       fetchAttendanceLogs();
+      setQrScanError(null); // Clear any scanner-related errors on successful operation
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     catch (err: any) {
       console.error('Check-in/out failed:', err);
-      let errorMessage = 'Failed to process attendance. Please ensure User ID is valid.';
-      if (err.response && err.response.data && err.response.data.message) {
-        errorMessage = `Attendance failed: ${err.response.data.message}`;
-      } else if (err.response && err.response.status === 400) {
-          errorMessage = `Attendance failed: ${err.response.data.message || 'Bad Request'}`;
+      let errorMessage = `Failed to process attendance for ${userNameForToast || `ID: ${targetUserId}`}.`;
+      
+      // MODIFIED: Extract specific message from backend's ErrorResponseDTO if available
+      // This will now correctly display messages like "User has already checked in and checked out today at {time}."
+      if (err.response && err.response.data && typeof err.response.data === 'object' && 'message' in err.response.data) {
+        errorMessage = (err.response.data as ErrorResponseDTO).message; // Directly use the message from the DTO
+      } else if (err.response && err.response.data && typeof err.response.data === 'string') {
+          // Fallback if backend sends plain string error (less ideal but possible)
+          errorMessage = err.response.data;
       } else if (err.response && err.response.status === 404) {
-        errorMessage = "Attendance failed: User not found. Please verify the ID.";
+          errorMessage = "Attendance failed: User not found. Please verify the ID.";
       }
       toast.error(errorMessage);
+      setQrScanError(errorMessage); // Pass error to scanner component to display
     } finally {
       setLoadingCheckIn(false);
     }
-  };
+  }, [selectedUser, fetchAttendanceLogs]);
 
   const handleManualCheckInSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    handleCheckInOrOut();
+    if (selectedUser) {
+        handleCheckInOrOut(selectedUser.userId, selectedUser.name);
+    } else {
+        toast.error("Please select a member via search or scan a QR code.");
+    }
   };
 
   const formatTimeSpent = (minutes?: number) => {
@@ -328,7 +353,41 @@ const AttendancePage: React.FC = () => {
     }
   };
 
-  // NEW: Headers configuration for Attendance Logs table
+  // NEW: Handlers for QrCodeScanner integration
+  const handleQrScanSuccess = useCallback(async (decodedText: string) => {
+    // This function receives the scanned user ID (e.g., "311893")
+    const userIdNum = parseInt(decodedText);
+    if (isNaN(userIdNum)) {
+      toast.error(`Invalid QR Code: Scanned value '${decodedText}' is not a valid User ID.`); // More specific error
+      setQrScanError('Invalid QR Code: Non-numeric ID.');
+      return;
+    }
+
+    // Try to get user details to display name in toast, then call check-in/out
+    try {
+      const response = await axiosInstance.get<User[]>(`/dashboard/users/search`, { params: { query: decodedText } });
+      if (response.data.length > 0) {
+        const user = response.data[0];
+        // Trigger check-in/out for the scanned user
+        await handleCheckInOrOut(user.userId, user.name);
+        setQrScanError(null); // Clear any previous scanner errors on successful operation
+      } else {
+        toast.error(`Invalid QR Code: User ID '${decodedText}' not found in system.`); // More specific error
+        setQrScanError('Invalid QR Code: User not found.');
+      }
+    } catch (error) {
+      console.error("Error processing scanned user:", error);
+      toast.error("An error occurred while processing the scanned QR Code. Please try again.");
+      setQrScanError('Processing error.');
+    }
+  }, [handleCheckInOrOut]); // Dependency on handleCheckInOrOut
+
+  const handleQrScanError = useCallback((errorMessage: string) => {
+    // This function receives errors that QrCodeScanner component filtered as critical
+    setQrScanError(errorMessage);
+  }, []);
+
+  // Headers configuration for Attendance Logs table
   const headers = [
     { label: 'Record ID', width: 'w-[90px]' },
     { label: 'Member User ID', width: 'w-[120px]' },
@@ -359,11 +418,11 @@ const AttendancePage: React.FC = () => {
               value={selectedUser ? `${selectedUser.name} (ID: ${selectedUser.userId}, Contact: ${selectedUser.contactNumber || 'N/A'})` : searchQuery}
               onChange={handleSearchInputChange}
               onFocus={() => {
-                if (selectedUser && searchResults.length === 0) {
-                    setSearchResults(prev => prev);
-                } else if (!selectedUser) {
-                    setSearchResults([]);
+                if (selectedUser) {
+                    setSelectedUser(null);
+                    setSearchQuery('');
                 }
+                setSearchResults([]);
               }}
               onBlur={() => setTimeout(() => setSearchResults([]), 100)}
               placeholder="e.g., Revanth, 123456, 90593..."
@@ -445,6 +504,39 @@ const AttendancePage: React.FC = () => {
         )}
       </div>
 
+      {/* NEW: QR Scanner Toggle Switch */}
+      <div className="mb-6 mt-6 flex justify-center items-center gap-4">
+        <label htmlFor="qr-scanner-toggle" className="flex items-center cursor-pointer">
+          <div className="relative">
+            <input
+              type="checkbox"
+              id="qr-scanner-toggle"
+              className="sr-only"
+              checked={showQrScanner}
+              onChange={() => setShowQrScanner(!showQrScanner)}
+            />
+            <div className={`block w-14 h-8 rounded-full transition-colors duration-200 ${showQrScanner ? 'bg-indigo-600' : 'bg-gray-400'}`}></div>
+            <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform duration-200 ${showQrScanner ? 'translate-x-full' : 'translate-x-0'}`}></div>
+          </div>
+          <div className="ml-3 text-gray-700 font-medium">
+            {showQrScanner ? 'QR Scanner ON' : 'QR Scanner OFF'}
+          </div>
+        </label>
+      </div>
+
+      {/* NEW: QR Scanner Component (conditionally rendered) */}
+      {showQrScanner && (
+        <div className="bg-gray-50 p-6 rounded-lg shadow-inner mb-8 mt-4">
+          <QrCodeScanner
+            onScanSuccess={handleQrScanSuccess}
+            onScanError={handleQrScanError}
+            qrCodeError={qrScanError} // Pass specific QR scan error to scanner component
+            showScanner={showQrScanner} // Pass current visibility state to scanner
+          />
+        </div>
+      )}
+
+
       {/* Action Buttons: Generate Summaries and Checkout All */}
       <div className="flex flex-col md:flex-row justify-center gap-4 mb-6 mt-6">
         <button
@@ -478,8 +570,8 @@ const AttendancePage: React.FC = () => {
           {attendanceRecords.length === 0 && totalElements === 0 ? (
             <p className="text-center text-gray-500">No attendance records found.</p>
           ) : (
-            <table className="min-w-full bg-white border border-gray-200 shadow-sm rounded-lg table-fixed"> {/* Added table-fixed */}
-              <thead className="w-full"> {/* Added w-full */}
+            <table className="min-w-full bg-white border border-gray-200 shadow-sm rounded-lg table-fixed">
+              <thead className="w-full">
                 <tr className="bg-gray-100">
                   {headers.map((header) => (
                     <th key={header.label} className={`py-3 px-4 border-b text-left text-gray-600 font-semibold ${header.width}`}>
@@ -501,13 +593,12 @@ const AttendancePage: React.FC = () => {
                     <td className="py-3 px-4 text-gray-700 w-[120px]">
                       {formatTimeSpent(record.timeSpentMinutes)}
                     </td>
-                    <td className="py-3 px-4 w-[180px]"> {/* Fixed width for the actions cell */}
-                      <div className="flex items-center space-x-2 justify-start"> {/* Align buttons to start */}
-                        {/* Individual Check Out Button */}
+                    <td className="py-3 px-4 w-[180px]">
+                      <div className="flex items-center space-x-2 justify-start">
                         {record.checkInTime && !record.checkOutTime ? (
                           <button
                             onClick={() => handleCheckInOrOut(record.userId, record.userName)}
-                            className="bg-orange-500 hover:bg-orange-600 text-white text-sm py-1 px-2 rounded-md whitespace-nowrap min-w-[70px] flex-shrink-0" /* Adjusted px and added flex-shrink-0 */
+                            className="bg-orange-500 hover:bg-orange-600 text-white text-sm py-1 px-2 rounded-md whitespace-nowrap min-w-[70px] flex-shrink-0"
                           >
                             Check Out
                           </button>
@@ -515,7 +606,7 @@ const AttendancePage: React.FC = () => {
                         }
                         <button
                           onClick={() => handleDeleteClick(record.attendanceId)}
-                          className="bg-red-500 hover:bg-red-600 text-white text-sm py-1 px-2 rounded-md whitespace-nowrap min-w-[70px] flex-shrink-0" /* Adjusted px and added flex-shrink-0 */
+                          className="bg-red-500 hover:bg-red-600 text-white text-sm py-1 px-2 rounded-md whitespace-nowrap min-w-[70px] flex-shrink-0"
                         >
                           Delete
                         </button>

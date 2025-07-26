@@ -2,17 +2,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
-
-import { ToastContainer } from 'react-toastify';
+import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
-// Import icons (ensure lucide-react is installed: npm install lucide-react)
+// Import icons
 import {
-  LayoutDashboard, Users, UserCog, Package, CalendarCheck, // Lucide icons for nav
+  LayoutDashboard, Users, UserCog, Package, CalendarCheck,
   Menu, // Hamburger icon for toggle
-  ChevronLeft, ChevronRight // Arrows for desktop toggle
+  ChevronLeft // Left arrow for collapsing
 } from 'lucide-react';
-
 // Import your page components
 import LoginPage from './pages/LoginPage.tsx';
 import DashboardPage from './pages/DashboardPage.tsx';
@@ -20,11 +18,11 @@ import UsersPage from './pages/UsersPage.tsx';
 import TrainersPage from './pages/TrainersPage.tsx';
 import MembershipPlansPage from './pages/MembershipPlansPage.tsx';
 import AttendancePage from './pages/AttendancePage.tsx';
+import QrCodeScanner from './components/QrCodeScanner.tsx';
 
 // PrivateRoute component to protect routes
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 text-gray-700">
@@ -38,60 +36,52 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
 const App: React.FC = () => {
   const { isAuthenticated, logout, user, loading } = useAuth();
-  const location = useLocation(); // Hook to get current path for active link highlighting
+  const location = useLocation();
 
-  // isSidebarOpen: Master state. True if sidebar is expanded (either pinned or mobile open). False if collapsed (desktop) or hidden (mobile).
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Default to collapsed on desktop, hidden on mobile
-  // isMobileView: Detects if screen is smaller than md breakpoint (768px)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobileView, setIsMobileView] = useState(window.innerWidth < 768);
-  // isHovering: Tracks mouse hover for desktop TEMPORARY expansion (only relevant if not isSidebarOpen)
   const [isHovering, setIsHovering] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
 
-  const sidebarRef = useRef<HTMLElement>(null); // Ref for sidebar for click outside on mobile
+  // States for QR Scanner testing in App.tsx (temporary)
+  const [testScannedUserId, setTestScannedUserId] = useState<string | null>(null);
+  const [testScannerError, setTestScannerError] = useState<string | null>(null);
+  const [showQrScannerTest, setShowQrScannerTest] = useState(false);
 
-  // Effect for responsive behavior and initial state
+
   useEffect(() => {
     const handleResize = () => {
       const newIsMobile = window.innerWidth < 768;
       setIsMobileView(newIsMobile);
       if (!newIsMobile) {
-        // On desktop, default to collapsed state on resize, unless it's already explicitly open.
-        setIsSidebarOpen(false); // Sidebar starts collapsed on desktop
+        setIsSidebarOpen(false);
       } else {
-        // On mobile, ensure sidebar starts hidden/collapsed on resize
-        setIsSidebarOpen(false); // Force hide on mobile
+        setIsSidebarOpen(false);
       }
-      setIsHovering(false); // Reset hover state on resize
+      setIsHovering(false);
     };
     window.addEventListener('resize', handleResize);
-    handleResize(); // Initial check
+    handleResize();
     return () => window.removeEventListener('resize', handleResize);
-  }, [isSidebarOpen]); // Re-run effect if isSidebarOpen changes, to re-evaluate resize logic
+  }, []);
 
 
-  // Effect to handle clicks outside sidebar on mobile (only when sidebar is open)
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      // FIX: If sidebar is explicitly open AND click is outside (whether mobile or desktop)
       if (isSidebarOpen && sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
-        setIsSidebarOpen(false); // Close sidebar
+        setIsSidebarOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isSidebarOpen, isMobileView]); // Dependencies for this effect
+    return () => document.removeEventListener('mousedown', handleClickOutside); // Corrected typo here
+  }, [isSidebarOpen, isMobileView]);
 
-  // Function to toggle the sidebar (click on hamburger/arrow)
   const handleToggleSidebar = () => {
-    setIsSidebarOpen(prev => !prev); // Toggle the sidebar's main state
-    setIsHovering(false); // Stop hovering effect immediately on click toggle
+    setIsSidebarOpen(prev => !prev);
+    setIsHovering(false);
   };
 
-  // Determine the *effective* width of the sidebar for UI elements
-  // This is true if it's explicitly open, OR if it's desktop and currently being hovered.
   const isSidebarVisuallyExpanded = isSidebarOpen || (isHovering && !isMobileView);
-
-  // Calculate dynamic left margin for main content and width for top bar
   const mainContentMl = isMobileView ? '0px' : (isSidebarVisuallyExpanded ? 'var(--sidebar-expanded-width)' : 'var(--sidebar-collapsed-width)');
 
 
@@ -103,7 +93,6 @@ const App: React.FC = () => {
     );
   }
 
-  // Nav menu items
   const menuItems = [
     { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
     { label: 'Members', path: '/users', icon: Users },
@@ -111,6 +100,23 @@ const App: React.FC = () => {
     { label: 'Plans', path: '/plans', icon: Package },
     { label: 'Attendance', path: '/attendance', icon: CalendarCheck },
   ];
+
+  // Handlers for QrCodeScanner component when tested in App.tsx
+  const handleTestScanSuccess = (decodedText: string) => {
+    setTestScannedUserId(decodedText);
+    setTestScannerError(null);
+    toast.success(`Test Scan Success: ${decodedText}`);
+  };
+
+  const handleTestScanError = (errorMessage: string) => {
+    if (errorMessage.includes("NotAllowedError") || errorMessage.includes("NotFoundError") || errorMessage.includes("SecurityError")) {
+      setTestScannerError(errorMessage);
+      toast.error(`Test Scanner Error: ${errorMessage}`);
+    } else {
+      // console.warn("Non-critical test scan error:", errorMessage);
+    }
+  };
+
 
   return (
     <div className="flex min-h-screen bg-gray-100">
@@ -148,31 +154,27 @@ const App: React.FC = () => {
             onMouseEnter={() => !isMobileView && !isSidebarOpen && setIsHovering(true)}
             onMouseLeave={() => !isMobileView && !isSidebarOpen && setIsHovering(false)}
           >
-            {/* Sidebar Header (Gym Central Logo / Toggle Button) */}
+            {/* Sidebar Header (Gym Central Text Logo / Toggle Button) */}
             <div className={`p-4 text-3xl font-extrabold border-b border-gray-700 text-teal-400
               flex items-center justify-between overflow-hidden relative h-16
             `}>
               {/* Gym Central Text Logo (visible when expanded) */}
+              {/* FIX: Concatenate Tailwind classes into className */}
               <span className={`whitespace-nowrap ${isSidebarVisuallyExpanded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-100 ease-in-out`}>Gym Central</span>
               
               {/* Toggle button (Desktop: Arrow, Collapsed Desktop: Hamburger icon) */}
-              {/*!isMobileView && ( // Only show toggle button on desktop
+              {!isMobileView && (
                 <button
                   onClick={handleToggleSidebar}
-                  className={`absolute right-4 top-1/2 -translate-y-1/2 text-white focus:outline-none transition-opacity duration-200 sidebar-header-toggle-button`}
-                  // Show arrow if expanded, or fade in on hover if collapsed
-                  style={{ opacity: isSidebarVisuallyExpanded ? 1 : 0, pointerEvents: isSidebarVisuallyExpanded ? 'auto' : 'none' }}
+                  className={`absolute right-4 top-1/2 -translate-y-1/2 text-white focus:outline-none sidebar-header-toggle-button`}
                 >
-                  {isSidebarOpen ? <ChevronLeft size={24} /> : <ChevronRight size={24} />}
+                  {isSidebarOpen ?
+                    <ChevronLeft size={24} className="lucide lucide-chevron-left" /> :
+                    <Menu size={24} className="lucide lucide-menu" />
+                  }
                 </button>
-              )*/}
-               {/* Fixed Collapsed Menu Icon (only on desktop when collapsed and not hovering) */}
-              {!isMobileView && !isSidebarVisuallyExpanded && ( // isSidebarVisuallyExpanded controls if this is visible
-                  <Menu className="h-8 w-8 text-teal-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-100" />
               )}
             </div>
-
-            {/* REMOVED: Welcome Message Section from Sidebar */}
 
             {/* Navigation Links */}
             <nav className="flex-grow py-4">
@@ -181,15 +183,15 @@ const App: React.FC = () => {
                   <li key={item.path}>
                     <Link
                       to={item.path}
-                      onClick={() => isMobileView && setIsSidebarOpen(false)} // Close sidebar on mobile click
+                      onClick={() => isMobileView && setIsSidebarOpen(false)}
                       className={`
                         group flex items-center w-full py-3 px-4 rounded-md text-gray-300
                         hover:bg-gray-700 hover:text-white transition-colors duration-200 ease-in-out
-                        ${location.pathname.startsWith(item.path) ? 'bg-gray-700 text-white' : ''} /* Active item highlight */
+                        ${location.pathname.startsWith(item.path) ? 'bg-gray-700 text-white' : ''}
                       `}
                     >
-                      <item.icon className="w-5 h-5 flex-shrink-0" /> {/* Icon */}
-                      {/* Text label for menu item - hides/shows */}
+                      <item.icon className="w-5 h-5 flex-shrink-0" />
+                      {/* FIX: Concatenate Tailwind classes into className */}
                       <span
                         className={`ml-3 whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out
                           ${isSidebarVisuallyExpanded ? 'opacity-100 w-auto ml-3' : 'opacity-0 w-0 ml-0'}
@@ -197,7 +199,6 @@ const App: React.FC = () => {
                       >
                         {item.label}
                       </span>
-                      {/* Tooltip for collapsed desktop view (only when not mobile and not expanded) */}
                       {!isMobileView && !isSidebarVisuallyExpanded && (
                         <span className="tooltip absolute left-full ml-4 px-2 py-1 bg-gray-700 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none z-50">
                           {item.label}
@@ -205,7 +206,8 @@ const App: React.FC = () => {
                       )}
                     </Link>
                   </li>
-                ))}
+                ))}               
+
               </ul>
             </nav>
 
@@ -215,25 +217,25 @@ const App: React.FC = () => {
                 onClick={logout}
                 className="mt-4 w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md focus:outline-none focus:shadow-outline transition-colors duration-200 ease-in-out"
               >
-                <span className={isSidebarVisuallyExpanded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-100 ease-in-out>Logout</span>
+                {/* FIX: Concatenate Tailwind classes into className */}
+                <span className={`${isSidebarVisuallyExpanded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-100 ease-in-out`}>Logout</span>
               </button>
             </div>
           </aside>
 
-          {/* Overlay for mobile (closes sidebar on click) */}
-          {isMobileView && isSidebarOpen && ( // Only show if mobile and sidebar is open
+          {/* Overlay for mobile */}
+          {isMobileView && isSidebarOpen && (
             <div
               className="fixed inset-0 bg-black bg-opacity-50 z-10"
-              onClick={() => setIsSidebarOpen(false)} // Close sidebar on overlay click
+              onClick={() => setIsSidebarOpen(false)}
             ></div>
           )}
 
           {/* Main content area */}
           <div className={`flex-grow flex flex-col transition-all duration-300 ease-in-out`}
-            style={{ marginLeft: mainContentMl, marginTop: isMobileView ? '64px' : '0px' }} /* Adjust top margin for mobile header */
+            style={{ marginLeft: mainContentMl, marginTop: isMobileView ? '64px' : '0px' }}
           >
-            {/* The actual main content goes here, rendered by React Router */}
-            <main className="flex-grow p-6 overflow-auto" style={{ paddingTop: 'var(--topbar-height)' /* Always ensure padding for fixed topbar */ }}>
+            <main className="flex-grow p-6 overflow-auto" style={{ paddingTop: 'var(--topbar-height)' }}>
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Navigate to="/login" />} />
@@ -244,6 +246,34 @@ const App: React.FC = () => {
                 <Route path="/trainers" element={<PrivateRoute><TrainersPage /></PrivateRoute>} />
                 <Route path="/plans" element={<PrivateRoute><MembershipPlansPage /></PrivateRoute>} />
                 <Route path="/attendance" element={<PrivateRoute><AttendancePage /></PrivateRoute>} />
+
+                {/* NEW TEMPORARY TEST ROUTE FOR QR SCANNER */}
+                <Route path="/test-qr-scanner" element={
+                  <PrivateRoute>
+                    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-6">
+                        <h2 className="text-3xl font-bold text-gray-800 mb-6">QR Scanner Test Environment</h2>
+                        {testScannedUserId && (
+                            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mb-4" role="alert">
+                                <strong className="font-bold">Last Scanned:</strong>
+                                <span className="block sm:inline ml-2">{testScannedUserId}</span>
+                            </div>
+                        )}
+                        <QrCodeScanner
+                            onScanSuccess={handleTestScanSuccess}
+                            onScanError={handleTestScanError}
+                            qrCodeError={testScannerError}
+                            showScanner={true}
+                        />
+                        <button
+                          onClick={() => { setTestScannedUserId(null); setTestScannerError(null); }}
+                          className="mt-6 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200"
+                        >
+                            Reset Test Display
+                        </button>
+                    </div>
+                  </PrivateRoute>
+                } />
+
 
                 {/* Fallback for undefined routes */}
                 <Route path="*" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />
